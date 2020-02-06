@@ -2,6 +2,7 @@
 
 import json
 import socket
+import struct
 import time
 
 import ds18x20
@@ -38,7 +39,10 @@ class RunTime:
         self.ds.convert_temp()
         time.sleep_ms(750)
         for rom in self.ds.scan():
-            yield (rom, self.ds.read_temp(rom))
+            value = self.ds.read_temp(rom)
+            rom_id = '{0:x}'.format(*struct.unpack('!Q', rom))
+            print("{0}: {1} C".format(rom_id, value))
+            yield (rom_id, value)
 
     def run(self, delay=5):
         while True:
@@ -59,10 +63,9 @@ class RunTime:
     def get_temps(self):
         try:
             temps = list(self.read_temps())
-            print("Temperature: {0:+5.1f}".format(temps[0][1]))
         except:
             print("Can't read temperature!")
-            temps = (b'\x00' * 8, float('nan'))
+            temps = ('0' * 16, float('nan'))
         return temps
 
     def send_temperatures(self, temperatures):
