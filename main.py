@@ -1,4 +1,7 @@
-import struct
+# Copyright 2020 Kimmo Parviainen-Jalanko
+
+import json
+import socket
 import time
 
 import ds18x20
@@ -9,47 +12,73 @@ import onewire
 from nodemcu_gpio import *
 from nodemcu_gpio_lcd import GpioLcd
 
-wlan = network.WLAN(network.STA_IF)
-
 
 class RunTime:
     def __init__(self):
         _machine_id = machine.unique_id()
-        self.machine_id = struct.unpack("I", _machine_id)[0]
-        self.ow = onewire.OneWire(Pin(13))
+        self.count = 0
+        self.machine_id = '{2:0x}:{1:0x}:{0:0x}'.format(*_machine_id)
+        self.ow = onewire.OneWire(d7)
         self.ds = ds18x20.DS18X20(self.ow)
         self.lcd = GpioLcd(d6, d5, d4, d3, d2, d1)
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.startup()
+
+    def startup(self):
+        self.wlan = network.WLAN(network.STA_IF)
+        while True:
+            if self.wlan.ifconfig()[0] != "0.0.0.0":
+                break
+            print("Waiting to get IP address")
+            time.sleep(1)
+        self.rtc = machine.RTC()
 
     def read_temps(self):
         self.ds.convert_temp()
         time.sleep_ms(750)
         for rom in self.ds.scan():
-            yield self.ds.read_temp(rom)
+            yield (rom, self.ds.read_temp(rom))
 
     def run(self, delay=5):
         while True:
-            self.update()
+            self()
             time.sleep_ms(delay * 1000 - 750)
 
-    def update(self):
-        ip_addr = wlan.ifconfig()[0]
+    def __call__(self):
+        self.ip_addr = self.wlan.ifconfig()[0]
+        temps = self.get_temps()
+        cycle_messages = [self.ip_addr, self.machine_id]
+        row1 = "{0:+6.1f}\xdfC\n".format(temps[0][1])
+        row2 = cycle_messages[self.count % len(cycle_messages)]
+        self.send_temperatures(temps)
+        self.lcd.clear()
+        self.lcd.putstr(row1 + row2)
+        self.count += 1
+
+    def get_temps(self):
         try:
             temps = list(self.read_temps())
-            temp = temps[0]
+            print("Temperature: {0:+5.1f}".format(temps[0][1]))
         except:
             print("Can't read temperature!")
-            temp = -99.9
-        self.lcd.clear()
-        # self.lcd.putstr("{0:.1f}\xdfC {1:08x}\n{2}".format(temp, self.machine_id, ip_addr))
-        self.lcd.putstr("{0:+5.1f}\xdfC {1:08x}{2}".format(temp, self.machine_id, ip_addr))
+            temps = (b'\x00' * 8, float('nan'))
+        return temps
+
+    def send_temperatures(self, temperatures):
+        data = json.dumps(dict(temps=temperatures, node=self.machine_id, n=self.count))
+        print(data)
+        self.send(data.encode('utf-8'))
+
+    def send(self, payload):
+        self.sock.sendto(payload, (b"172.17.2.75", 54724))
 
 
-rt = RunTime()
-rt.update()
+RUNTIME = RunTime()
 
 
 def main():
-    rt.run(10)
+    RUNTIME.run(10)
 
 
 if __name__ == '__main__':
