@@ -18,6 +18,19 @@ NaN = float('nan')
 MIN_OFFSET = 0
 HOUR_OFFSET = 2
 
+
+class Periodic:
+    def __init__(self, rt, f, interval):
+        self.rt = rt
+        self.f = f
+        self.interval = interval
+        self.rt.periodics.add(self)
+
+    def __call__(self):
+        if self.rt.count % self.interval == 0:
+            self.f()
+
+
 class RunTime:
     def __init__(self):
         _machine_id = machine.unique_id()
@@ -28,8 +41,10 @@ class RunTime:
         self.lcd = GpioLcd(d6, d5, d4, d3, d2, d1)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.periodics = set()
 
-    def startup(self):
+    def startup(self, delay=10):
+        self.delay = delay
         self.lcd.clear()
         self.lcd.putstr("...starting\n{}".format(self.machine_id))
         self.wlan = network.WLAN(network.STA_IF)
@@ -56,10 +71,10 @@ class RunTime:
             print("{0}: {1} C".format(rom_id, value))
             yield (rom_id, value)
 
-    def run(self, delay=5):
+    def run(self):
         while True:
             self()
-            time.sleep_ms(delay * 1000 - 750)
+            time.sleep_ms(self.delay * 1000 - 750)
 
     def __call__(self):
         self.ip_addr = self.wlan.ifconfig()[0]
@@ -99,8 +114,9 @@ RUNTIME = RunTime()
 
 
 def main():
-    RUNTIME.startup()
-    RUNTIME.run(10)
+    RUNTIME.startup(30)
+    Periodic(RUNTIME, ntptime.settime, 20)
+    RUNTIME.run()
 
 
 if __name__ == '__main__':
