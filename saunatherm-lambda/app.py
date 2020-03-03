@@ -4,6 +4,7 @@ from decimal import Decimal
 import boto3
 import chalice
 from boto3.dynamodb.conditions import Key
+from chalice import NotFoundError
 
 TABLE_NAME = 'temperatures'
 
@@ -34,11 +35,21 @@ def register(sensor_id):
     return list(ret['Attributes']['sensors'])
 
 
+@app.route("/sensors")
+def sensor_list():
+    ret = table.get_item(Key=dict(sensor_id="sensors", timestamp=0))
+    print(ret)
+    return list(ret['Item']['sensors'])
+
+
 @app.route("/temperature/{sensor_id}")
 def get_temperature(sensor_id):
     kce = Key('sensor_id').eq(sensor_id)
     result = table.query(KeyConditionExpression=kce, ScanIndexForward=False, Limit=1)
-    data = result['Items'][0]
+    try:
+        data = result['Items'][0]
+    except IndexError:
+        raise NotFoundError
     ts = data.pop("timestamp")
     data['timestamp'] = datetime.datetime.utcfromtimestamp(ts).isoformat()
     return data
