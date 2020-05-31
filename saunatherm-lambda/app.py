@@ -37,9 +37,16 @@ def register(sensor_id):
 
 @app.route("/sensors")
 def sensor_list():
+    def get_sensor_data(sensors):
+        for sensor_id in sensors:
+            r = table.get_item(Key=dict(sensor_id=sensor_id, timestamp=0))['Item']
+            del r['timestamp']
+            yield r
     ret = table.get_item(Key=dict(sensor_id="sensors", timestamp=0))
     print(ret)
-    return list(ret['Item']['sensors'])
+    sensors = ret['Item']['sensors']
+
+    return list(get_sensor_data(sensors))
 
 
 @app.route("/temperature/{sensor_id}")
